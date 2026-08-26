@@ -1,0 +1,84 @@
+# openGym — despliegue en Dokploy (Traefik + Let's Encrypt)
+#
+# Diferencias con docker-compose.yml (el de self-hosting manual):
+#   1. Los bind mounts apuntan a ../files/ en vez de ./  -> Dokploy hace `git clone`
+#      en el directorio /code en CADA deploy y lo vacía. Montar ./data ahí significa
+#      perder usuarios, passkeys e histórico. ../files/ es hermano de /code y persiste.
+#   2. `expose` en vez de `ports` -> Traefik enruta por red interna; nada abierto al host.
+#   3. Todos los servicios en la red externa `dokploy-network` (requisito de Dokploy
+#      para que el dominio del panel enrute).
+#   4. Se construye desde el código del repo (sin `image:` prebuilt de ghcr.io).
+#
+# Dominio: configúralo en Dokploy > Domains  ->  servicio `web`, puerto 80.
+# Variables: Dokploy > Environment. RP_ID y ORIGIN son OBLIGATORIAS (el deploy falla
+# a propósito si faltan, en vez de arrancar con 'localhost' y romper las passkeys).
+
+name: opengym
+
+services:
+  # Descarga única de imágenes/GIFs de ejercicios (~140 MB). Si ya están, sale al instante.
+  media:
+    image: alpine/git
+    volumes:
+      - ../files/media/img:/out/img
+      - ../files/media/gif:/out/gif
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$(ls -A /out/img 2>/dev/null)" ]; then
+          echo "↓ Descargando media de ejercicios (~140 MB, una sola vez)…"
+          git clone --depth 1 https://github.com/hasaneyldrm/exercises-dataset /tmp/ds
+          cp /tmp/ds/images/*.jpg /out/img/ && cp /tmp/ds/videos/*.gif /out/gif/
+          echo "✓ Media lista ($$(ls /out/img | wc -l) imágenes)."
+        else
+          echo "✓ Media ya presente — omitiendo descarga."
+        fi
+    restart: "no"
+    networks:
+      - dokploy-network
+
+  # API: passkeys (WebAuthn) + datos por usuario. Sin framework.
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - DATA_DIR=/data
+      # OBLIGATORIAS — sin ellas el deploy falla con mensaje claro.
+      - RP_ID=${RP_ID:?falta RP_ID (hostname exacto, sin https://) en Dokploy > Environment}
+      - ORIGIN=${ORIGIN:?falta ORIGIN (https://hostname) en Dokploy > Environment}
+      - RP_NAME=${RP_NAME:-openGym}
+      # Opcionales — ver docs/DEPLOY_DOKPLOY.md, sección "admin e invite-only".
+      - ADMIN_UIDS=${ADMIN_UIDS:-}
+      - INVITE_ONLY=${INVITE_ONLY:-}
+      - SESSION_DAYS=${SESSION_DAYS:-90}
+    volumes:
+      # usuarios, passkeys, histórico, secreto de sesión, claves VAPID — HAZ BACKUP
+      - ../files/data:/data
+    expose:
+      - "3000"
+    networks:
+      - dokploy-network
+
+  # nginx: sirve el SPA compilado y proxea /api -> api. Un solo origen (requisito passkeys).
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      media:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    expose:
+      - "80"
+    volumes:
+      - ../files/media/img:/usr/share/nginx/html/img:ro
+      - ../files/media/gif:/usr/share/nginx/html/gif:ro
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
