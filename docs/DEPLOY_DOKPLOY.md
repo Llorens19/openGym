@@ -12,7 +12,7 @@ ver la nota al final).
 openGym autentica **solo con passkeys** (WebAuthn). No hay contraseña, ni recuperación
 por email. Dos consecuencias:
 
-- **El hostname queda grabado en cada passkey.** `RP_ID=gym.tudominio.com` significa que
+- **El hostname queda grabado en cada passkey.** `RP_ID=gym.xequeproject.es` significa que
   las passkeys registradas solo valen en ese hostname exacto. Cambiarlo después las
   invalida todas y los usuarios quedan fuera sin forma de entrar.
 - **`../files/data` es el único sitio donde vive todo.** Usuarios, passkeys, histórico de
@@ -25,21 +25,24 @@ Decide el subdominio ahora, no después de que nadie se registre.
 
 ## 1. DNS
 
-En el panel de tu registrador / proveedor DNS:
+**Probablemente ya está hecho.** `xequeproject.es` tiene un registro wildcard: cualquier
+subdominio inventado resuelve a `75.119.157.169`, así que `gym.xequeproject.es` ya apunta al
+VPS sin tocar nada. Confírmalo desde tu máquina o por SSH al VPS:
+
+```bash
+dig +short gym.xequeproject.es      # debe devolver 75.119.157.169
+```
+
+Si por lo que sea no resuelve, crea el registro explícito:
 
 | Tipo | Nombre | Valor | TTL |
 |---|---|---|---|
 | A | `gym` | `75.119.157.169` | 300 (auto) |
 
-Si usas Cloudflare: **nube gris (DNS only)** al principio. La nube naranja mete un proxy
-por delante y Let's Encrypt en Dokploy usa desafío HTTP-01 — con proxy activo puede fallar
-la emisión. Cuando el certificado esté emitido, ya puedes activar el proxy si quieres.
-
-Comprueba propagación antes de seguir:
-
-```bash
-dig +short gym.tudominio.com    # debe devolver 75.119.157.169
-```
+Cloudflare (lo usas ya en XQP): el subdominio debe ir en **nube gris (DNS only)** al menos
+hasta que Let's Encrypt emita el certificado. Dokploy usa desafío HTTP-01 y con el proxy
+naranja delante la emisión puede fallar. Una vez emitido, activa el proxy si te interesa —
+pero ojo: si lo activas, el `ORIGIN` sigue siendo `https://gym.xequeproject.es`, no cambia.
 
 Puertos 80 y 443 abiertos en el firewall del VPS y en el panel de Contabo.
 
@@ -62,8 +65,8 @@ Puertos 80 y 443 abiertos en el firewall del VPS y en el panel de Contabo.
 Pestaña **Environment** del servicio Compose:
 
 ```env
-RP_ID=gym.tudominio.com
-ORIGIN=https://gym.tudominio.com
+RP_ID=gym.xequeproject.es
+ORIGIN=https://gym.xequeproject.es
 RP_NAME=openGym
 SESSION_DAYS=90
 ```
@@ -86,7 +89,7 @@ Reglas:
 ## 4. Dominio y primer deploy
 
 1. Pestaña **Domains → Add Domain**:
-   - Host: `gym.tudominio.com`
+   - Host: `gym.xequeproject.es`
    - **Service Name: `web`**
    - **Container Port: `80`**
    - HTTPS: **on** · Certificate provider: **Let's Encrypt**
@@ -105,7 +108,7 @@ Qué esperar en el log, en orden:
 Verificación:
 
 ```bash
-curl https://gym.tudominio.com/api/health
+curl https://gym.xequeproject.es/api/health
 # {"ok":true,"users":0}
 ```
 
@@ -123,7 +126,7 @@ fuera de tu propia instancia.
 
 Secuencia correcta:
 
-1. Con `INVITE_ONLY` vacío, abre `https://gym.tudominio.com` desde el móvil o el portátil y
+1. Con `INVITE_ONLY` vacío, abre `https://gym.xequeproject.es` desde el móvil o el portátil y
    **crea tu perfil con passkey**.
 2. Saca tu `id` del VPS por SSH:
 
