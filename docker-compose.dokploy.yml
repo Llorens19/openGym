@@ -64,7 +64,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: web/Dockerfile
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       media:
