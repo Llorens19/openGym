@@ -153,31 +153,59 @@ protegido por tu passkey y se valida en servidor, no necesita login aparte.
 
 ---
 
-## 6. Backup (hazlo el mismo día)
+## 6. Backup
 
-Todo lo irrecuperable está en `../files/data`. Localiza la ruta real:
+Todo lo irrecuperable vive en `../files/data`: `db.json` (usuarios y passkeys), `secret`
+(clave de firma de sesiones), `vapid.json` (claves push) y un `state-<uid>.json` por usuario
+con **el histórico de entrenos y el peso corporal**. Sin passkeys no hay "he olvidado mi
+contraseña": si eso se pierde, se pierde.
+
+### Lo que hay montado: tarea programada de Dokploy
+
+Pestaña **Schedules** del servicio Compose, tarea *Backup diario de data*:
+
+- Service: `api` · Shell: `sh` · Cron: `0 4 * * *` (UTC)
+- Comando:
+
+```sh
+mkdir -p /data/_backups && \
+tar czf /tmp/og.tgz -C /data --exclude=_backups . && \
+mv /tmp/og.tgz /data/_backups/opengym-$(date +%Y%m%d).tar.gz && \
+find /data/_backups -name 'opengym-*.tar.gz' -mtime +14 -delete && \
+ls -la /data/_backups
+```
+
+Se construye en `/tmp` y se mueve después: así el archivo no se incluye a sí mismo. El
+`--exclude=_backups` evita que cada copia arrastre las anteriores. Rotación de 14 días.
+Los `.tar.gz` acaban en `/etc/dokploy/compose/<appName>/files/data/_backups/` en el host, que
+sobrevive a los redeploys.
+
+Puedes lanzarla a mano con el botón ▶ de la tarea y verificar el contenido desde
+**Open Terminal** (contenedor `api`, shell `/bin/sh`):
+
+```sh
+ls -la /data/_backups
+tar tzf /data/_backups/opengym-*.tar.gz     # deben salir db.json, secret, vapid.json y state-*.json
+```
+
+### Lo que falta: sacarlo del VPS
+
+Un backup que solo vive en el mismo disco que el original no protege contra fallo de disco,
+borrado del directorio ni pérdida del VPS. Protege contra corrupción de `db.json` y poco más.
+Para cerrarlo del todo, por SSH al VPS:
 
 ```bash
-ls -d /etc/dokploy/compose/*opengym*/files/data
+# copia diaria fuera del servidor (rclone a un bucket, o scp a casa)
+0 5 * * * rclone copy /etc/dokploy/compose/$(ls /etc/dokploy/compose | grep opengym | head -1)/files/data/_backups remoto:opengym-backups
 ```
 
-Cron diario a las 4:00 con retención de 14 días:
+O configura un **S3 Destination** en Dokploy (Settings → S3 Destinations) y usa la pestaña
+**Backups** del servicio.
 
-```bash
-mkdir -p /srv/backups/opengym
-crontab -e
-```
+### Restaurar
 
-```cron
-0 4 * * * tar czf /srv/backups/opengym/opengym-$(date +\%F).tar.gz -C /etc/dokploy/compose/$(ls /etc/dokploy/compose | grep opengym | head -1)/files data && find /srv/backups/opengym -name 'opengym-*.tar.gz' -mtime +14 -delete
-```
-
-Un backup que solo vive en el mismo VPS no es un backup. Sácalo fuera (rclone a un bucket,
-scp a casa, o el módulo de backups de Dokploy si ya lo usas).
-
-Restaurar: parar el compose, desempaquetar el `data/` dentro de `files/`, arrancar.
-
-Los usuarios además pueden exportar sus propios datos en JSON desde Ajustes.
+Parar el compose, desempaquetar el `.tar.gz` sobre `files/data/`, arrancar. Los usuarios
+además pueden exportar sus propios datos en JSON desde Ajustes.
 
 ---
 
